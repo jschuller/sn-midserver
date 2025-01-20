@@ -1,0 +1,62 @@
+# Environment files
+.env
+*.env
+
+# MID Server specific
+/agent/logs/
+/agent/config.xml
+/agent/security/
+/agent/work/
+*.log
+*.log.*
+META-INF/
+/META-INF/
+
+# Generated files
+*.class
+*.jar
+*.war
+*.ear
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# OS specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE specific
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build artifacts
+*.zip
+/tmp/
+target/
+build/
+
+# Certificate and key files
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+*.p12
+*.pfx
+
+# MID Server downloaded installers
+**/mid*.zip
+**/agent*.zip
+
+# Temporary files
+*.tmp
+*.temp
+*.bak

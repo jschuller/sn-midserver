@@ -1,0 +1,497 @@
+#!/bin/bash
+set -e
+
+MID_HOME="/opt/snc_mid_server/agent"
+CONF_FILE="${MID_HOME}/config.xml"
+WRAPPER_CONF_FILE="${MID_HOME}/conf/wrapper-override.conf"
+
+# Mandatory ENV
+MID_INSTANCE_URL=${MID_INSTANCE_URL:-}
+MID_INSTANCE_USERNAME=${MID_INSTANCE_USERNAME:-}
+MID_INSTANCE_PASSWORD=${MID_INSTANCE_PASSWORD:-}
+MID_SERVER_NAME=${MID_SERVER_NAME:-}
+
+# Secret
+MID_SECRETS_FILE=${MID_SECRETS_FILE:-}
+
+# Container Deploymane Name
+MID_CONTAINER_DEPLOYMENT_NAME=${MID_CONTAINER_DEPLOYMENT_NAME:-}
+
+# Container Deploymane Namespace
+MID_CONTAINER_DEPLOYMENT_NAMESPACE=${MID_CONTAINER_DEPLOYMENT_NAMESPACE:-}
+
+# Deployment Mid SysId
+DEPLOYMENT_MID_ID=${DEPLOYMENT_MID_ID:-}
+
+# Operational ENV
+MID_PROXY_HOST=${MID_PROXY_HOST:-}
+MID_PROXY_PORT=${MID_PROXY_PORT:-}
+MID_PROXY_USERNAME=${MID_PROXY_USERNAME:-}
+MID_PROXY_PASSWORD=${MID_PROXY_PASSWORD:-}
+MID_MUTUAL_AUTH_PEM_FILE=${MID_MUTUAL_AUTH_PEM_FILE:-}
+
+MID_SSL_BOOTSTRAP_CERT_REVOCATION_CHECK=${MID_SSL_BOOTSTRAP_CERT_REVOCATION_CHECK:-}
+MID_SSL_USE_INSTANCE_SECURITY_POLICY=${MID_SSL_USE_INSTANCE_SECURITY_POLICY:-}
+
+EXIT_CODE_NORMAL_SHUTDOWN=0
+EXIT_CODE_DOWNLOAD_FAILURE=1
+EXIT_CODE_MISSING_CONFIG_PARAM=2
+EXIT_CODE_MUTUAL_AUTH_SETUP_FAILURE=3
+
+# Flag to indicate if mutual auth is used
+IS_MUTUAL_AUTH=0
+
+# File to track setup completion
+MID_INITIALIZED_FILE="${MID_HOME}/.initialized"
+
+# File to keep env checksum
+MID_ENV_HASH_FILE="${MID_HOME}/.env_hash"
+
+#  Set up log file to the persistent volume if available 
+MID_CONTAINER_DIR="/opt/snc_mid_server/mid_container"
+LOG_FILE="/opt/snc_mid_server/mid-container.log"
+if [[ -d $MID_CONTAINER_DIR ]]
+then
+  LOG_FILE="${MID_CONTAINER_DIR}/mid-container.log";
+fi
+
+logInfo () {
+  msg="$(date '+%Y-%m-%dT%T.%3N') ${1}"
+  echo "$msg" | tee -a ${LOG_FILE}
+}
+
+generateConfigXml () {
+  logInfo "DOCKER: setting up config.xml"
+
+  # For Rome compatibility we add the following parameters as defaults.
+  # Mandatory config
+  replaceConfigParameter 1 url ${MID_INSTANCE_URL}
+  replaceConfigParameter 1 name ${MID_SERVER_NAME}
+
+  # Optional config
+  # Proxy related
+  # These parameters require a value because they are bootstrapped
+  replaceConfigParameter 1 mid.proxy.host ${MID_PROXY_HOST}
+  replaceConfigParameter 1 mid.proxy.port ${MID_PROXY_PORT}
+  replaceConfigParameter 1 mid.proxy.username ${MID_PROXY_USERNAME}
+  replaceConfigParameter 1 mid.proxy.password ${MID_PROXY_PASSWORD}
+
+  # Cert revocation check and whether to use instance security policy
+  # These parameters require a value because they are bootstrapped
+  # mid.ssl.bootstrap.default.check_cert_revocation: default val is False
+  # mid.ssl.use.instance.security.policy: default val is False
+  replaceConfigParameter 1 mid.ssl.bootstrap.default.check_cert_revocation  ${MID_SSL_BOOTSTRAP_CERT_REVOCATION_CHECK}
+  replaceConfigParameter 1 mid.ssl.use.instance.security.policy  ${MID_SSL_USE_INSTANCE_SECURITY_POLICY}
+
+  # Handle generic config parameters from MID server profile
+  envConfigRegex="MID_CONFIG_(.*)=(.*)"
+  declare -A envVars
+  getEnvVars $envConfigRegex $envVars
+
+  for param in "${!envVars[@]}"
+  do
+    # not sure why the associative array contains an element with the key "0". Remove it for now.
+    # I'll try to figure it out and clean this up.
+    if [[ $param == "0" ]]
+    then
+      continue;
+    fi
+    if [[ -n $param ]]
+    then
+      logInfo "DOCKER: updating profile parameter: $param"
+      replaceConfigParameter 0 $param ${envVars[$param]}
+    fi
+  done
+
+  # Fill in $MID_CONTAINER_DEPLOYMENT_NAME in .container
+  sed -i "s/ContainerDeploymentName=.*/ContainerDeploymentName=${MID_CONTAINER_DEPLOYMENT_NAME}/g" .container
+
+  # Fill in $MID_CONTAINER_DEPLOYMENT_NAMESPACE in .container
+  sed -i "s/ContainerDeploymentNamespace=.*/ContainerDeploymentNamespace=${MID_CONTAINER_DEPLOYMENT_NAMESPACE}/g" .container
+
+  # Fill in $DEPLOYMENT_MID_ID in .container
+  sed -i "s/DeploymentMidId=.*/DeploymentMidId=${DEPLOYMENT_MID_ID}/g" .container
+
+
+  # Handle secrets file. Secrets file has priority over default and generic prarams
+  if [[ ! -z "$MID_SECRETS_FILE" && -f "$MID_SECRETS_FILE" ]]
+  then
+    logInfo "DOCKER: processing secrets file"
+    propRegex="^(.*)=(.*)$"
+    while read line
+    do
+      if [[ $line =~ $propRegex ]]
+      then
+        name=${BASH_REMATCH[1]}
+        value=${BASH_REMATCH[2]}
+        replaceConfigParameter 0 $name $value
+      fi
+    done < $MID_SECRETS_FILE
+  fi
+
+  if [[ ! -z "$MID_MUTUAL_AUTH_PEM_FILE" && -f "$MID_MUTUAL_AUTH_PEM_FILE" ]]
+  then
+    # If Cert (PEM) file is set and exists, proceed with mutual auth
+    logInfo "DOCKER: mutual auth cert file found: $MID_MUTUAL_AUTH_PEM_FILE"
+
+    cd /opt/snc_mid_server/agent && \
+      sh bin/scripts/manage-certificates.sh -a "DefaultSecurityKeyPairHandle" $MID_MUTUAL_AUTH_PEM_FILE
+
+    if [[ $? != 0 ]]
+    then
+      logInfo "DOCKER: Error adding certificate. Please ensure PEM file is valid. Abandoning setup."
+      exit $EXIT_CODE_MUTUAL_AUTH_SETUP_FAILURE
+    fi
+
+    cd /opt/snc_mid_server/agent && \
+      sh bin/scripts/manage-certificates.sh -m
+
+    if [[ $? != 0 ]]
+    then
+      logInfo "DOCKER: Error enabling mutual auth. Please ensure config.xml can be modified. Abandoning setup."
+      exit $EXIT_CODE_MUTUAL_AUTH_SETUP_FAILURE
+    fi
+
+    IS_MUTUAL_AUTH=1
+    logInfo "DOCKER: mutual auth enabled on MID"
+  else
+    # mutual auth is not set, proceed with basic authentication
+    logInfo "DOCKER: mutual auth cert file not found: $MID_MUTUAL_AUTH_PEM_FILE"
+    replaceConfigParameter 1 mid.instance.username ${MID_INSTANCE_USERNAME}
+    replaceConfigParameter 1 mid.instance.password ${MID_INSTANCE_PASSWORD}
+  fi
+
+  # Verify that mandatory parameters have been added
+  validateMandatoryParameters
+
+  logInfo "DOCKER: Update configuration DONE"
+}
+
+updateWrapperConfFromEnvVars() {
+
+  logInfo "DOCKER: setting up wrapper-override.conf"
+
+  envVarWrapperConfRegex="^MID_WRAPPER_(.*)=(.*)$"
+  wrapperConfRegex="^#?(.*)=(.*)$"
+
+  declare -A envVars
+  getEnvVars $envVarWrapperConfRegex $envVars
+
+  updatedFileContent=""
+
+  # Iterate each line of wrapper file, concat updated lines to memory, then write final string back to file
+  while read line
+  do
+    # If file line is a property attempt to update it with env variable value
+    if [[ $line =~ $wrapperConfRegex ]]
+    then
+      name=${BASH_REMATCH[1]}
+      value=${BASH_REMATCH[2]}
+      newValue=${envVars[$name]}
+      newLine=""
+
+      # If property exists in env vars then update with new value
+      if [[ -n $newValue ]]
+      then
+        newLine="${name}=${newValue}"
+        # remove so envvars contains only variables that still need to be written to file"
+        unset -v 'envVars['$name']'
+      else
+        newLine=$line
+      fi
+      updatedFileContent="${updatedFileContent}$newLine\n"
+
+    # If line isn't a property just write it back to file without modification
+    else
+      updatedFileContent="${updatedFileContent}$line\n"
+    fi
+  done < ${WRAPPER_CONF_FILE}
+
+  # envVars may contain additional variables whose name isn't already contained in wrapper-override.conf
+  # For example, java.wrapper.additional.1 is a name found in wrapper-override.conf and would have
+  # already been updated in the previous loop.
+  # java.wrapper.additional.10 is not found in wrapper-override.conf and so would be added here.
+  for prop in "${!envVars[@]}"
+  do
+    if [[ $prop == "0" ]]
+    then
+      continue
+    fi
+    if [[ -n $prop ]]
+    then
+      newLine="${prop}=${envVars[$prop]}"
+      updatedFileContent="${updatedFileContent}$newLine\n"
+    fi
+  done
+
+  # Write back to file
+  printf "$updatedFileContent" > ${WRAPPER_CONF_FILE}
+}
+
+getEnvVars() {
+  regex=$1
+  envVars=$2
+
+  for var in $(printenv)
+  do
+    if [[ $var =~ $regex ]]
+    then
+      name=${BASH_REMATCH[1]}
+      value=${BASH_REMATCH[2]}
+      # Bash environment variable names can only contain alpha-numeric characeters and the underscore
+      # and as such, the period (.) is an offending character and has been remapped to
+      # two consecutive underscores (__).
+      # example: mid.log.level is stored as mid__log__level
+      # The following line restores the original name
+      name=${name//"__"/"."}
+      envVars[$name]=$value
+    fi
+  done
+}
+
+replaceConfigParameter() {
+  requiresValue=$1
+  name=$2
+  val=$3
+
+  # process the mid server name template
+  if [[ "${name}" == "name" ]]
+  then
+    if [[ "${val}" == *"_AUTO_GENERATED_UUID_" ]]
+    then
+      _replacement=$(uuidgen)
+      val=${val/_AUTO_GENERATED_UUID_/${_replacement}}
+      logInfo "DOCKER: UUID ${_replacement} is generated and the new value ${val} is assigned to the ${name} parameter"
+    elif [[ "${val}" == *"_NAMESPACE_HOSTNAME_" ]]
+    then
+      [[ "${MID_CONTAINER_DEPLOYMENT_NAMESPACE}" == "default" ]] && _replacement="$(hostname)" || _replacement="${MID_CONTAINER_DEPLOYMENT_NAMESPACE}_$(hostname)"
+      val=${val/_NAMESPACE_HOSTNAME_/${_replacement}}
+      logInfo "DOCKER: _NAMESPACE_HOSTNAME_ ${_replacement} is generated and the new value ${val} is assigned to the ${name} parameter"
+    elif [[ "${val}" == *"_HOSTNAME_NAMESPACE_" ]]
+    then
+      [[ "${MID_CONTAINER_DEPLOYMENT_NAMESPACE}" == "default" ]] && _replacement="$(hostname)" || _replacement="$(hostname)_${MID_CONTAINER_DEPLOYMENT_NAMESPACE}"
+      val=${val/_HOSTNAME_NAMESPACE_/${_replacement}}
+      logInfo "DOCKER: _HOSTNAME_NAMESPACE_ ${_replacement} is generated and the new value ${val} is assigned to the ${name} parameter"
+    fi
+  fi
+
+  # disallow any empty value for bootstrap parameters, e.g. url, proxy params
+  if [[ $requiresValue == 1 && -z $val ]]
+  then
+    logInfo "DOCKER: Parameter $name has no value and will not be added to $CONF_FILE"
+    return 0
+  fi
+
+  #Handle existing parameters
+  if [[ `xmlstarlet sel -t -v "/parameters/parameter/@name='$name'" $CONF_FILE` == "true" ]]
+  then
+    logInfo "DOCKER: Updating parameter $name in file: $CONF_FILE"
+    /bin/xmlstarlet edit --inplace --update "/parameters/parameter[@name='$name']/@value" --value "$val" $CONF_FILE
+  else
+    # Handle optional parameters
+    logInfo "DOCKER: Adding parameter $name to file: $CONF_FILE"
+    sed -i "s|</parameters>|  <parameter name=\"${name}\" value=\"${val}\"/>\n\n</parameters>|g" $CONF_FILE
+  fi
+}
+
+validateMandatoryParameters() {
+  logInfo "DOCKER: validating mandatory parameters"
+
+  # These default values are taken from the config.xml ootb.
+  # If these values change in the future, those changes should be made here as well.
+  validateMandatoryParameter "url" "https://YOUR_INSTANCE.service-now.com/" 0
+  validateMandatoryParameter "name" "YOUR_MIDSERVER_NAME_GOES_HERE" 0
+  validateMandatoryParameter "mid.instance.username" "YOUR_INSTANCE_USER_NAME_HERE" $IS_MUTUAL_AUTH
+  validateMandatoryParameter "mid.instance.password" "YOUR_INSTANCE_PASSWORD_HERE" $IS_MUTUAL_AUTH
+}
+
+validateMandatoryParameter() {
+  name=$1
+  defaultValue=$2
+  checkNotPresent=$3
+
+  logInfo "DOCKER: Validating parameter: '$name'"
+
+  validationPath="//parameters/parameter/@name='$name'"
+  elementPath="//parameters/parameter[@name='$name']"
+
+  if [[ `xmlstarlet sel -t -v $validationPath $CONF_FILE` == "true" ]]
+  then
+    xmlParam=`xmlstarlet sel -t -c ${elementPath} $CONF_FILE`
+    # If mutual auth is enabled we shouldn't have a username or pw in config.xml
+    if [[ $checkNotPresent == 1 ]]
+    then
+      logInfo "DOCKER: Found parameter '$name' in config.xml but not expected."
+      logInfo "        This could be caused by mutual authentication setup failure. Abandoning setup."
+      exit $EXIT_CODE_MUTUAL_AUTH_SETUP_FAILURE
+    fi
+    valueRegex="^.* value=\"(.*)\".*$"
+    if [[ $xmlParam =~ $valueRegex && ( ${BASH_REMATCH[1]} == $defaultValue || ${BASH_REMATCH[1]} == "" ) ]]
+    then
+      logInfo "DOCKER: Parameter '$name' failed to update in config.xml."
+      logInfo "        Please verify that the '$name' parameter has been supplied. Abandoning setup."
+      exit $EXIT_CODE_MISSING_CONFIG_PARAM
+    fi
+  elif [[ $checkNotPresent == 0 ]]
+  then
+    logInfo "DOCKER: Mandatory parameter '$name' expected but not found in config.xml."
+    logInfo "        Please verify that a value has been given for '$name'. Abandoning setup."
+    exit $EXIT_CODE_MISSING_CONFIG_PARAM
+  fi
+}
+
+updateConfigurationFiles () {
+  generateConfigXml
+  updateWrapperConfFromEnvVars
+}
+
+isEnvHashChanged () {
+  logInfo "DOCKER: current_env_hash=${current_env_hash}"
+
+  if [ -e $MID_ENV_HASH_FILE ]
+  then
+    prev_env_hash=$(cat $MID_ENV_HASH_FILE)
+    logInfo "DOCKER: prev_env_hash=${prev_env_hash}"
+
+    if [ "$current_env_hash" == "$prev_env_hash" ]
+    then
+      logInfo "DOCKER: The env hash is the same"
+    else
+      logInfo "DOCKER: The env hash has changed"
+      return 0
+    fi
+  else
+    # This should not happen because the env hash is saved during
+    # first time setup and and anytime the hash has changed.
+    logInfo "DOCKER: The previous $MID_ENV_HASH_FILE not found"
+  fi
+
+  return 1
+}
+
+saveEnvHash () {
+  logInfo "DOCKER: Saving the current env hash $current_env_hash to $MID_ENV_HASH_FILE"
+  echo "$current_env_hash" > $MID_ENV_HASH_FILE
+}
+
+# max wait time for initialization
+MAX_INIT_WAIT_TIME=60
+
+midStart () {
+
+  touch /opt/snc_mid_server/agent/logs/agent0.log.0
+
+  logInfo "DOCKER: starting mid server"
+
+  /opt/snc_mid_server/agent/bin/mid.sh start &
+
+  # CLI does not fully spawned and need a wait until the process generated. Not having the wait would make container
+  # to exit immediately.
+  waitTime=0
+  while [ ! -f /opt/snc_mid_server/agent/work/mid.pid ] && [ "$waitTime" -lt "$MAX_INIT_WAIT_TIME" ]
+  do
+    sleep 5
+    waitTime=$(( $waitTime + 5 ))
+    logInfo "DOCKER: Mid wrapper init taking $waitTime sec .."
+  done
+
+  wrapper_pid=$(cat /opt/snc_mid_server/agent/work/mid.pid)
+
+  # In addition, we rely on CLI execution to restart MID service which should not exit the container either.
+  # We would need a way to keep container alive
+  while true
+  do
+      tail -F /opt/snc_mid_server/agent/logs/agent0.log.0 & wait ${!}
+  done
+
+}
+
+_handleSignal_SIGTERM() {
+  logInfo "DOCKER: Received signal SIGTERM, gracefully shut down mid before exiting..."
+  /opt/snc_mid_server/pre_stop.sh backup_only
+  /opt/snc_mid_server/agent/bin/mid.sh stop
+
+  exit $EXIT_CODE_NORMAL_SHUTDOWN
+}
+
+midStop () {
+  logInfo "DOCKER: stopping mid server"
+
+  /opt/snc_mid_server/agent/bin/mid.sh stop
+}
+
+midRestart () {
+  logInfo "DOCKER: restarting mid server"
+
+  /opt/snc_mid_server/agent/bin/mid.sh restart
+}
+
+midSetup () {
+  flag=$1
+  
+  # restore the config, wrapper config and other metadata files
+  if [[ -f "${MID_CONTAINER_DIR}/config.xml" ]]
+  then
+    logInfo "Restore the config and other metadata files from the persistent volume"
+    \cp -f "${MID_CONTAINER_DIR}/config.xml" $CONF_FILE
+    \cp -f "${MID_CONTAINER_DIR}/wrapper-override.conf" $WRAPPER_CONF_FILE
+    \cp -f "${MID_CONTAINER_DIR}/.initialized" $MID_INITIALIZED_FILE
+    \cp -f "${MID_CONTAINER_DIR}/.env_hash" $MID_ENV_HASH_FILE
+    \cp -f "${MID_CONTAINER_DIR}/.container" /opt/snc_mid_server/.container
+    \cp -f "${MID_CONTAINER_DIR}/glide.properties" /opt/snc_mid_server/agent/properties/
+  fi
+  
+  current_env_hash=$(./calculate_mid_env_hash.sh)
+
+  if [[ ! -f $MID_INITIALIZED_FILE  || $flag == "-f" ]]
+  then
+    updateConfigurationFiles
+    touch $MID_INITIALIZED_FILE
+    date > $MID_INITIALIZED_FILE
+    saveEnvHash
+    /opt/snc_mid_server/pre_stop.sh backup_only
+  elif isEnvHashChanged
+  then
+    logInfo "DOCKER: Reupdate MID Server configuration files."
+    updateConfigurationFiles
+    saveEnvHash
+    /opt/snc_mid_server/pre_stop.sh backup_only
+  fi
+}
+
+midHelp () {
+  echo "Available options:"
+  echo " start          - Starts the mid server (default)"
+  echo " restart        - Restarts the mid server"
+  echo " setup          - Generate config.xml and java wrapper overrides"
+  echo " help           - Displays the help"
+  echo " [command]          - Execute the specified linux command eg. bash."
+}
+
+# SIGTERM (15) : software termination signal - typically sent docker stop or by kill by default
+trap '_handleSignal_SIGTERM' SIGTERM
+
+logInfo "DOCKER: running the init script by the user id: `id`"
+
+case "$1" in
+  start)
+    midSetup
+    midStart
+    ;;
+  setup)
+    midSetup -f
+    ;;
+  stop)
+    midStop
+    ;;
+  restart)
+    midRestart
+    ;;
+  help)
+    midHelp
+    ;;
+  *)
+    midHelp
+    ;;
+esac
+

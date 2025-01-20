@@ -1,0 +1,5 @@
+# MID Server Container, ServiceNow Inc.
+StartAsProcess=true
+ContainerDeploymentName=
+DeploymentMidId=
+ContainerDeploymentNamespace=

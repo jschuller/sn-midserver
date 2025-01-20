@@ -84,40 +84,6 @@ flowchart TD
    - Check status shows as "Up"
 
 
-## Cleanup Instructions
-
-1. Stop and Remove MID Server Container
-    ```bash
-    # Stop the container
-    docker stop servicenow-mid
-
-    # Remove the container
-    docker rm servicenow-mid
-
-    # Remove the container image
-    docker rmi midserver
-    ```
-
-2. Clean local Docker System
-    ```bash
-    # Remove unused containers, networks, and dangling images
-    docker system prune -f
-
-    # Remove all unused images (not just dangling ones)
-    docker system prune -a -f
-
-    # Check no containers remain
-    docker ps -a
-    ```
-
-3. Cleanup ServiceNow PDI
-   1. Navigate to MID Server > Servers
-   2. Find your MID Server
-   3. Delete the MID Server record
-   4. Remove MID Server user from PDI or reset its password if reusing the instance
-
-
-
 ## Container Startup Flow
 
 ```mermaid
@@ -163,6 +129,39 @@ docker exec servicenow-mid cat /opt/snc_mid_server/agent/logs/agent0.log.0
 # Monitor resource usage
 docker stats servicenow-mid
 ```
+
+## Cleanup Instructions
+
+1. Stop and Remove MID Server Container
+    ```bash
+    # Stop the container
+    docker stop servicenow-mid
+
+    # Remove the container
+    docker rm servicenow-mid
+
+    # Remove the container image
+    docker rmi midserver
+    ```
+
+2. Clean local Docker System
+    ```bash
+    # Remove unused containers, networks, and dangling images
+    docker system prune -f
+
+    # Remove all unused images (not just dangling ones)
+    docker system prune -a -f
+
+    # Check no containers remain
+    docker ps -a
+    ```
+
+3. Cleanup ServiceNow PDI
+   1. Navigate to MID Server > Servers
+   2. Find your MID Server
+   3. Delete the MID Server record
+   4. Remove MID Server user from PDI or reset its password if reusing the instance
+
 
 
 ## Additional Resources

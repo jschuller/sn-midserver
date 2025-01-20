@@ -1,4 +1,4 @@
-# Setting up a ServiceNow MID Server on your PDI
+# Setting up a ServiceNow MID Server for your PDI (Personal Developer Instance)
 
 ## Introduction
 This project configures a ServiceNow MID Server in a Docker container on macOS specifically for use with Personal Developer Instances (PDIs). We explore the capabilities and limitations of running MID Servers with PDIs making it a valuable learning resource for ServiceNow developers and administrators.

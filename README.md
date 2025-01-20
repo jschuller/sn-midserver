@@ -1,4 +1,4 @@
-# Setting up a ServiceNow MID Server for your PDI (Personal Developer Instance)
+# Setting up a containerized ServiceNow MID Server for your PDI (Personal Developer Instance)
 
 ## Introduction
 This project repository is a ServiceNow community resource demonstrating how to configure a containerized ServiceNow MID Server with Personal Developer Instances (PDIs). 

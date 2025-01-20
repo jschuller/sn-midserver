@@ -5,6 +5,32 @@ This project repository is a ServiceNow community resource demonstrating how to 
 
 Please also refer to official training materials such as those listed in the [Additional Resources](#additional-resources).
 
+## Architecture Overview
+
+```mermaid
+flowchart TD
+    subgraph macOS
+        DD[Docker Desktop]
+        subgraph Container
+            MS[MID Server]
+            NM[Nmap]
+            OT[Other Tools]
+        end
+    end
+    
+    subgraph ServiceNow PDI
+        ECC[ECC Queue]
+        AUTH[Authentication]
+        CONF[Configuration]
+    end
+    
+    DD --> Container
+    MS --> ECC
+    ECC --> MS
+    MS --> AUTH
+    MS --> CONF
+```
+
 ## Prerequisites
 - ServiceNow Personal Developer Instance (PDI)
 - Docker Desktop for Mac (Apple Silicon or Intel)
@@ -91,31 +117,6 @@ Please also refer to official training materials such as those listed in the [Ad
    4. Remove MID Server user from PDI or reset its password if reusing the instance
 
 
-## Architecture Overview
-
-```mermaid
-flowchart TD
-    subgraph macOS
-        DD[Docker Desktop]
-        subgraph Container
-            MS[MID Server]
-            NM[Nmap]
-            OT[Other Tools]
-        end
-    end
-    
-    subgraph ServiceNow PDI
-        ECC[ECC Queue]
-        AUTH[Authentication]
-        CONF[Configuration]
-    end
-    
-    DD --> Container
-    MS --> ECC
-    ECC --> MS
-    MS --> AUTH
-    MS --> CONF
-```
 
 ## Container Startup Flow
 

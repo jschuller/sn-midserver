@@ -55,7 +55,7 @@ flowchart TD
    ```
    Edit `.env` with your PDI details:
    - MID_INSTANCE_URL (your PDI URL)
-   - MID_INSTANCE_USERNAME (e.g. 'mid.server' user with roles: 'mid_server' 'itom_admin' and 'discovery_admin'))
+   - MID_INSTANCE_USERNAME (e.g. 'mid.server' user with roles: 'mid_server' 'itom_admin' and 'discovery_admin')
    - MID_INSTANCE_PASSWORD (your MID server user password)
    - MID_SERVER_NAME (your chosen MID server name)
 

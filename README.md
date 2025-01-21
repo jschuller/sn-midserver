@@ -170,4 +170,4 @@ docker stats servicenow-mid
 - Now Learning platform and hands-on labs
   - https://nowlearning.servicenow.com/lxp/en/pages/lxp-search?id=search&q=MID%20Server&spa=1
 - ServiceNow Developer portal
-  - https://developer.servicenow.com/dev.do#!/guides/xanadu/now-platform/tpb-guide/logs_and_queues_best_practices
+  - https://developer.servicenow.com/dev.do#!/guides/latest/now-platform/tpb-guide/logs_and_queues_best_practices

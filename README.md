@@ -1,5 +1,7 @@
 # Setting up a containerized ServiceNow MID Server for your PDI (Personal Developer Instance)
 
+![Containerized ServiceNow MID Server](docs/hero.png)
+
 ## Introduction
 This project repository is a ServiceNow community resource demonstrating how to configure a containerized ServiceNow MID Server with Personal Developer Instances (PDIs). 
 
@@ -34,13 +36,60 @@ flowchart TD
 ## Prerequisites
 - ServiceNow Personal Developer Instance (PDI)
 - Docker Desktop for Mac (Apple Silicon or Intel)
-- macOS Monterey (12.0) or later
+- macOS Ventura (13.0) or later
 - At least 4GB of RAM available for Docker
 - Basic knowledge of:
   - ServiceNow administration
   - Docker commands
   - Terminal/command line operations
 - ServiceNow MID Server role and admin access in your PDI
+
+## Versions
+
+This image tracks the **Australia** family (GA May 2026), the current ServiceNow release.
+
+| Component | Pinned version | Notes |
+|---|---|---|
+| MID Server | `australia-02-11-2026__patch2-04-17-2026_04-29-2026_2044` | Australia Patch 2 |
+| Runtime base image | `almalinux:9.8` | ServiceNow's recipe ships `9.2`, an EOL point release |
+| Builder base image | `eclipse-temurin:21-jdk-alpine` | Only used for `jarsigner`; ServiceNow's recipe ships JDK 8 |
+
+`Dockerfile.unmodified` is ServiceNow's recipe exactly as shipped. `Dockerfile` is that file
+plus two local changes, both on `FROM` lines and both commented `LOCAL MOD`.
+
+### Apple Silicon
+
+The MID Server is distributed as **x86-64 binaries only** — there is no ARM64 build
+([KB2675992](https://support.servicenow.com/kb?id=kb_article_view&sysparm_article=KB2675992)).
+The runtime stage is therefore pinned to `linux/amd64` and runs under Rosetta emulation on
+M-series Macs. Pass `--platform=linux/amd64` to both `docker build` and `docker run`.
+
+The builder stage is exempt: it only downloads, signature-verifies and unzips the installer,
+so it uses `--platform=$BUILDPLATFORM` and builds natively.
+
+### Updating to a newer MID release
+
+There is no static "latest" installer link. The URL is derived from your instance's MID
+buildstamp, so `scripts/get_mid_url.sh` reads it straight off the instance named in `.env`:
+
+```bash
+# What would we download?
+scripts/get_mid_url.sh --check
+
+# Build against whatever release your instance is on
+docker build --platform=linux/amd64 \
+  --build-arg MID_INSTALLATION_URL="$(scripts/get_mid_url.sh)" \
+  -t midserver .
+```
+
+Other useful flags: `--buildstamp` prints the raw buildstamp, and `--recipe` prints the URL of
+ServiceNow's Linux container recipe, which is how `Dockerfile.unmodified` and `asset/` get
+refreshed for a new family.
+
+Keep the MID Server within one or two families of your instance. A MID Server several
+releases behind may fail to auto-upgrade and validate.
+
+By hand, the same URL is under **MID Server > Downloads** (UI page `mid_server_download_ui`).
 
 ## Quick Start
 1. Clone this repository:
@@ -61,12 +110,16 @@ flowchart TD
 
 3. Build and run the container:
    ```bash
-   docker build -t midserver .
+   docker build --platform=linux/amd64 -t midserver .
    docker run -d --name servicenow-mid \
+     --platform=linux/amd64 \
      --env-file .env \
      --restart unless-stopped \
      midserver
    ```
+
+   To build against your instance's current release rather than the pinned default, see
+   [Updating to a newer MID release](#updating-to-a-newer-mid-release).
 
 4. Verify the setup:
    ```bash
@@ -165,6 +218,8 @@ docker stats servicenow-mid
 
 
 ## Additional Resources
+- Offline copies of the relevant Australia docs live in `docs/servicenow-australia/`
+  (`containerized-mid-server.md`, `installing-the-mid-server.md`)
 - ServiceNow Product Documentation 
   - https://www.servicenow.com/docs/csh?topicname=mid-server-landing.html&version=latest
 - Now Learning platform and hands-on labs

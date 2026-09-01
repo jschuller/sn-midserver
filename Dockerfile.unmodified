@@ -12,7 +12,7 @@ RUN apk -q update && \
     apk add -q wget && \
     rm -rf /tmp/*
 
-ARG MID_INSTALLATION_URL=https://install.service-now.com/glide/distribution/builds/package/app-signed/mid/2025/01/07/mid.xanadu-07-02-2024__patch4a-12-16-2024_01-07-2025_0947.linux.x86-64.zip
+ARG MID_INSTALLATION_URL=https://install.service-now.com/glide/distribution/builds/package/app-signed/mid/2026/04/29/mid.australia-02-11-2026__patch2-04-17-2026_04-29-2026_2044.linux.x86-64.zip
 ARG MID_INSTALLATION_FILE=""
 ARG MID_SIGNATURE_VERIFICATION="TRUE"
 

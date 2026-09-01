@@ -1,6 +1,12 @@
 # Environment files
 .env
 *.env
+.env.bak*
+# ...but mid.env is a tracked vendor artifact, not a secret
+!mid.env
+
+# MCP config may carry instance credentials - commit .mcp.json.example instead
+.mcp.json
 
 # MID Server specific
 /agent/logs/

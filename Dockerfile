@@ -5,14 +5,17 @@
 #     - Set the group's file permissions to match the owner's file permissions for the entire base directory
 # ########################################################################################################################
 
-FROM --platform=linux/amd64 eclipse-temurin:8-jdk-alpine AS pre_installation
+# LOCAL MOD: this stage only runs wget/jarsigner/unzip, so its output is
+# architecture-independent. $BUILDPLATFORM lets it build natively on Apple Silicon
+# (eclipse-temurin:8-jdk-alpine is published for amd64 only). Bumped 8 -> 21 (LTS).
+FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk-alpine AS pre_installation
 
 RUN apk -q update && \
     apk add -q bash && \
     apk add -q wget && \
     rm -rf /tmp/*
 
-ARG MID_INSTALLATION_URL=https://install.service-now.com/glide/distribution/builds/package/app-signed/mid/2025/01/07/mid.xanadu-07-02-2024__patch4a-12-16-2024_01-07-2025_0947.linux.x86-64.zip
+ARG MID_INSTALLATION_URL=https://install.service-now.com/glide/distribution/builds/package/app-signed/mid/2026/04/29/mid.australia-02-11-2026__patch2-04-17-2026_04-29-2026_2044.linux.x86-64.zip
 ARG MID_INSTALLATION_FILE=""
 ARG MID_SIGNATURE_VERIFICATION="TRUE"
 
@@ -54,7 +57,10 @@ RUN chmod -R g=u /opt/snc_mid_server
 #     - Grant the execution permission for the scripts and binaries that do not have it
 # ########################################################################################################################
 
-FROM --platform=linux/amd64 almalinux:9.2
+# LOCAL MOD: the MID Server ships x86-64 binaries only (ServiceNow KB2675992), so the
+# runtime stage is pinned to linux/amd64 and runs under Rosetta on Apple Silicon.
+# Base bumped 9.2 -> 9.8; 9.2 is an EOL point release.
+FROM --platform=linux/amd64 almalinux:9.8
 
 # Install security and bugfix updates, and then the required packages.
 RUN dnf update -y --security --bugfix && \
@@ -98,6 +104,8 @@ RUN if [[ -z "${GROUP_ID}" ]]; then GROUP_ID=1001; fi && \
     useradd -c "MID container user" --shell /sbin/nologin -r -m -u $USER_ID -g $MID_USERNAME $MID_USERNAME
 
 # Copy files from previous stage and make them owned by the mid user and the root group.
+# In the previous stage, the owner group permissions are already set to the same owner user permissions.
+# The dynamic user id assigned by OpenShift belongs to the root group, so it will have all the required permissions.
 COPY --chown=$USER_ID:0 --from=pre_installation /opt/snc_mid_server /opt/snc_mid_server
 
 # When containers run as the root user, file permissions are ignored, but for rootless containers, 

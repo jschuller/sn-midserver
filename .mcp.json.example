@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "/path/to/mcp-servicenow/.venv/bin/python",
+      "args": ["-m", "servicenow_mcp.cli"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "${MID_INSTANCE_URL}",
+        "SERVICENOW_AUTH_TYPE": "basic",
+        "SERVICENOW_USERNAME": "${MID_INSTANCE_USERNAME}",
+        "SERVICENOW_PASSWORD": "${MID_INSTANCE_PASSWORD}"
+      }
+    }
+  }
+}

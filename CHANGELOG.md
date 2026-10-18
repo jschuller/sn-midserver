@@ -5,6 +5,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+- `scripts/get_mid_url.sh` no longer accepts `--password`: a password in argv is readable
+  through `ps(1)` and lands in shell history, which contradicted the script's own
+  "never in argv" guarantee. The password now comes only from `MID_INSTANCE_PASSWORD` in
+  the environment or the env file. Credentials are escaped for curl's config syntax, and
+  values containing line breaks are refused, so they cannot inject curl config lines.
+- The instance-supplied buildstamp is restricted to `[A-Za-z0-9._-]` before it is composed
+  into a download URL.
+
+### Fixed
+- `get_mid_url.sh` env-file parsing strips only one pair of surrounding quotes (it used to
+  delete every quote in the value), accepts `export KEY=value`, and drops a trailing
+  `# comment` from unquoted values.
+- An option given without a value now fails with a message instead of exiting silently.
+- A non-JSON response (a hibernating PDI or a login page) gives a clear error instead of a
+  Python traceback; a null property value no longer crashes the parse.
+- CLAUDE.md's bump procedure said `--recipe` downloads and unpacks the recipe; it prints the
+  URL.
+
+### Added
+- `tests/get_mid_url_test.sh` (stubbed `curl`, no instance needed) and a CI workflow that
+  runs it with shellcheck.
+
 ### Changed
 - **MID Server bumped from Xanadu Patch 4a (Jan 2025) to Australia Patch 2 (Apr 2026)**,
   four release families forward. Vendor recipe (`Dockerfile.unmodified`, `asset/`,

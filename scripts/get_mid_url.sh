@@ -37,10 +37,12 @@ Options:
   --env-file FILE      Env file to read credentials from (default: .env)
   --instance URL       Instance URL or hostname (overrides the env file)
   --user NAME          Instance username (overrides the env file)
-  --password PASS      Instance password (overrides the env file)
   -h, --help           Show this help
 
-Credentials come from MID_INSTANCE_URL / MID_INSTANCE_USERNAME / MID_INSTANCE_PASSWORD.
+Credentials come from MID_INSTANCE_URL / MID_INSTANCE_USERNAME / MID_INSTANCE_PASSWORD,
+taken from the environment first and then from the env file. The password is never
+accepted as an argument: argv is visible to every user through ps(1) and lands in
+shell history.
 
 Examples:
   scripts/get_mid_url.sh --check
@@ -50,34 +52,66 @@ USAGE
   exit "${1:-1}"
 }
 
-# Reads the env file without exporting it into the caller's shell.
+# Reads one value from the env file without exporting it into the caller's shell.
+# Supports KEY=value, export KEY=value, one pair of surrounding quotes, and a trailing
+# " # comment" on unquoted values. The last assignment wins.
 loadEnvFile() {
-  local file=$1 key=$2
+  local file=$1 key=$2 value
   [ -f "$file" ] || return 0
-  sed -n "s/^[[:space:]]*${key}=//p" "$file" | tail -1 | tr -d '"'"'"'\r'
+  value=$(sed -n "s/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}${key}=//p" "$file" | tail -1 | tr -d '\r')
+  case "$value" in
+    \"*\"*) value=${value#\"}; value=${value%\"*} ;;
+    \'*\'*) value=${value#\'}; value=${value%\'*} ;;
+    *)      value=${value%%[[:space:]]#*}; value=${value%"${value##*[![:space:]]}"} ;;
+  esac
+  printf '%s' "$value"
+}
+
+# Prefers the variable already in the environment, then the env file.
+setting() {
+  local file=$1 key=$2
+  if [ -n "${!key:-}" ]; then
+    printf '%s' "${!key}"
+  else
+    loadEnvFile "$file" "$key"
+  fi
+}
+
+# Escapes a value for a double-quoted curl config string.
+curlQuote() {
+  local value=${1//\\/\\\\}
+  printf '%s' "${value//\"/\\\"}"
+}
+
+requireValue() {
+  if [ $# -lt 2 ] || [ -z "$2" ] || [ "${2#--}" != "$2" ]; then
+    errorExit "$1 needs a value."
+  fi
 }
 
 main() {
   local recipe=false check=false stampOnly=false
-  local envFile=".env" instance="" username="" password=""
+  local envFile=".env" instance="" username="" password
 
   while [ $# -gt 0 ]; do
     case "$1" in
       --recipe)     recipe=true; shift ;;
       --buildstamp) stampOnly=true; shift ;;
       --check)      check=true; shift ;;
-      --env-file)   envFile=${2:-}; shift 2 ;;
-      --instance)   instance=${2:-}; shift 2 ;;
-      --user)       username=${2:-}; shift 2 ;;
-      --password)   password=${2:-}; shift 2 ;;
+      --env-file)   requireValue "$@"; envFile=$2; shift 2 ;;
+      --instance)   requireValue "$@"; instance=$2; shift 2 ;;
+      --user)       requireValue "$@"; username=$2; shift 2 ;;
+      --password|--password=*)
+        errorExit "--password is not supported: argv is visible through ps(1) and shell history.
+Set MID_INSTANCE_PASSWORD in the environment or in the env file instead." ;;
       -h|--help)    usage 0 ;;
       *)            echo "Unknown option: $1" 1>&2; usage ;;
     esac
   done
 
-  [ -n "$instance" ] || instance=$(loadEnvFile "$envFile" MID_INSTANCE_URL)
-  [ -n "$username" ] || username=$(loadEnvFile "$envFile" MID_INSTANCE_USERNAME)
-  [ -n "$password" ] || password=$(loadEnvFile "$envFile" MID_INSTANCE_PASSWORD)
+  [ -n "$instance" ] || instance=$(setting "$envFile" MID_INSTANCE_URL)
+  [ -n "$username" ] || username=$(setting "$envFile" MID_INSTANCE_USERNAME)
+  password=$(setting "$envFile" MID_INSTANCE_PASSWORD)
 
   if [ -z "$instance" ]; then
     errorExit "No instance. Set MID_INSTANCE_URL in $envFile or pass --instance."
@@ -85,6 +119,9 @@ main() {
   if [ -z "$username" ] || [ -z "$password" ]; then
     errorExit "No credentials. Set MID_INSTANCE_USERNAME/MID_INSTANCE_PASSWORD in $envFile."
   fi
+  case "$username$password" in
+    *$'\n'*|*$'\r'*) errorExit "Credentials must not contain line breaks." ;;
+  esac
 
   # Accept https://host/, https://host, or a bare host.
   local host=${instance#*://}
@@ -95,7 +132,7 @@ main() {
 
   # Credentials go in on stdin via --config, never in argv where ps(1) could read them.
   local response
-  if ! response=$(printf 'user = "%s:%s"\n' "$username" "$password" \
+  if ! response=$(printf 'user = "%s:%s"\n' "$(curlQuote "$username")" "$(curlQuote "$password")" \
       | curl -sS -f -m 30 --config - -H "Accept: application/json" "$api" 2>&1); then
     errorExit "Could not query ${host}: ${response}
 Check the instance is awake (PDIs hibernate and are reclaimed after 10 idle days) and that the credentials in ${envFile} are valid."
@@ -103,15 +140,26 @@ Check the instance is awake (PDIs hibernate and are reclaimed after 10 idle days
 
   # mid.buildstamp is the canonical property, but some releases only populate mid.version.
   local buildstamp
-  buildstamp=$(echo "$response" | python3 -c '
+  if ! buildstamp=$(printf '%s' "$response" | python3 -c '
 import json, sys
-rows = {r["name"]: r["value"].strip() for r in json.load(sys.stdin).get("result", [])}
+try:
+    result = json.load(sys.stdin).get("result", [])
+except (ValueError, AttributeError):
+    sys.exit(1)
+rows = {r.get("name"): (r.get("value") or "").strip() for r in result if isinstance(r, dict)}
 print(rows.get("mid.buildstamp") or rows.get("mid.version") or "")
-')
+'); then
+    errorExit "${host} did not return JSON. A hibernating PDI or a login page answers with HTML; wake the instance and retry."
+  fi
 
   if [ -z "$buildstamp" ]; then
     errorExit "Neither mid.buildstamp nor mid.version is set on ${host}."
   fi
+
+  # The buildstamp becomes part of a URL and a docker build arg: allow only its known alphabet.
+  case "$buildstamp" in
+    *[!A-Za-z0-9._-]*) errorExit "Unexpected characters in buildstamp from ${host}: ${buildstamp}" ;;
+  esac
 
   if [ "$stampOnly" = true ]; then
     echo "$buildstamp"

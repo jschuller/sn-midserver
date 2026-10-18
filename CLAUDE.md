@@ -81,6 +81,8 @@ docker run --rm --platform=linux/amd64 -e MID_INSTANCE_URL=https://example.inval
   expansion, so one `.env` drives both it and the container. Copy it to `.mcp.json`
   (gitignored), point `command` at your checkout (here: `~/construction-mcp/mcp-servicenow`),
   and launch with `set -a; source .env; set +a; claude`.
+  Inside a session started that way, run `scripts/get_mid_url.sh --env-file .env`: the
+  script otherwise reads the exported values, and sourcing expands `$` in unquoted ones.
   Useful tools: `get_system_properties` (buildstamp), `list_records` (check `ecc_agent`).
 - The `sn-docs-harvester` skill refreshes `docs/servicenow-australia/`. Australia platform
   map: `8K~WUyyBmjUR0pLPxM8yeA`; subtrees `N~VhlzBMB0_33wUwBI_LtQ` (Containerized MID Server)

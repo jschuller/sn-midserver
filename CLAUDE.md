@@ -26,7 +26,8 @@ Line numbers are for the current recipe; re-derive them after a recipe refresh.
 ## Version Bump Procedure
 
 1. `scripts/get_mid_url.sh --buildstamp` — read the instance's current MID buildstamp.
-2. `scripts/get_mid_url.sh --recipe` — download and unpack that release's vendor recipe zip.
+2. `curl -fLO "$(scripts/get_mid_url.sh --recipe)"`, then unzip it. `--recipe` only prints
+   that release's vendor recipe URL; it does not download anything.
 3. Replace `Dockerfile.unmodified`, `asset/*` and `META-INF/*` from the unpacked recipe.
 4. Re-derive `Dockerfile` from the new `Dockerfile.unmodified` by re-applying the two
    `LOCAL MOD` `FROM` lines. Take the vendor's installer URL unless ours is newer.

@@ -39,10 +39,11 @@ Options:
   --user NAME          Instance username (overrides the env file)
   -h, --help           Show this help
 
-Credentials come from MID_INSTANCE_URL / MID_INSTANCE_USERNAME / MID_INSTANCE_PASSWORD,
-taken from the environment first and then from the env file. The password is never
-accepted as an argument: argv is visible to every user through ps(1) and lands in
-shell history.
+Settings come from MID_INSTANCE_URL / MID_INSTANCE_USERNAME / MID_INSTANCE_PASSWORD, all
+from one source: the --env-file if given, else the environment if any of them is set
+there, else .env. Env-file values are read literally, as docker --env-file reads them
+(an optional `export ` and one pair of surrounding quotes are removed). The password is
+never accepted as an argument: argv is visible through ps(1) and lands in shell history.
 
 Examples:
   scripts/get_mid_url.sh --check
@@ -53,27 +54,27 @@ USAGE
 }
 
 # Reads one value from the env file without exporting it into the caller's shell.
-# Supports KEY=value, export KEY=value, one pair of surrounding quotes, and a trailing
-# " # comment" on unquoted values. The last assignment wins.
+# Values are literal, as docker --env-file reads them; only an optional `export ` and
+# one pair of matching surrounding quotes are removed. The last assignment wins.
 loadEnvFile() {
   local file=$1 key=$2 value
   [ -f "$file" ] || return 0
   value=$(sed -n "s/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}${key}=//p" "$file" | tail -1 | tr -d '\r')
-  case "$value" in
-    \"*\"*) value=${value#\"}; value=${value%\"*} ;;
-    \'*\'*) value=${value#\'}; value=${value%\'*} ;;
-    *)      value=${value%%[[:space:]]#*}; value=${value%"${value##*[![:space:]]}"} ;;
-  esac
+  if [ ${#value} -ge 2 ]; then
+    case "$value" in
+      \"*\"|\'*\') value=${value:1:${#value}-2} ;;
+    esac
+  fi
   printf '%s' "$value"
 }
 
-# Prefers the variable already in the environment, then the env file.
+# Reads a setting from the chosen source: an env file path, or "" for the environment.
 setting() {
-  local file=$1 key=$2
-  if [ -n "${!key:-}" ]; then
-    printf '%s' "${!key}"
+  local from=$1 key=$2
+  if [ -z "$from" ]; then
+    printf '%s' "${!key:-}"
   else
-    loadEnvFile "$file" "$key"
+    loadEnvFile "$from" "$key"
   fi
 }
 
@@ -91,7 +92,7 @@ requireValue() {
 
 main() {
   local recipe=false check=false stampOnly=false
-  local envFile=".env" instance="" username="" password
+  local envFile="" instance="" username="" password from
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -109,15 +110,26 @@ Set MID_INSTANCE_PASSWORD in the environment or in the env file instead." ;;
     esac
   done
 
-  [ -n "$instance" ] || instance=$(setting "$envFile" MID_INSTANCE_URL)
-  [ -n "$username" ] || username=$(setting "$envFile" MID_INSTANCE_USERNAME)
-  password=$(setting "$envFile" MID_INSTANCE_PASSWORD)
+  # One source for all three settings, so a URL from one place never meets a password
+  # from another.
+  local sourceName
+  if [ -n "$envFile" ]; then
+    from=$envFile; sourceName=$envFile
+  elif [ -n "${MID_INSTANCE_URL:-}${MID_INSTANCE_USERNAME:-}${MID_INSTANCE_PASSWORD:-}" ]; then
+    from=""; sourceName="the environment"
+  else
+    from=.env; sourceName=.env
+  fi
+
+  [ -n "$instance" ] || instance=$(setting "$from" MID_INSTANCE_URL)
+  [ -n "$username" ] || username=$(setting "$from" MID_INSTANCE_USERNAME)
+  password=$(setting "$from" MID_INSTANCE_PASSWORD)
 
   if [ -z "$instance" ]; then
-    errorExit "No instance. Set MID_INSTANCE_URL in $envFile or pass --instance."
+    errorExit "No instance. Set MID_INSTANCE_URL in ${sourceName} or pass --instance."
   fi
   if [ -z "$username" ] || [ -z "$password" ]; then
-    errorExit "No credentials. Set MID_INSTANCE_USERNAME/MID_INSTANCE_PASSWORD in $envFile."
+    errorExit "No credentials. Set MID_INSTANCE_USERNAME/MID_INSTANCE_PASSWORD in ${sourceName}."
   fi
   case "$username$password" in
     *$'\n'*|*$'\r'*) errorExit "Credentials must not contain line breaks." ;;
@@ -135,7 +147,7 @@ Set MID_INSTANCE_PASSWORD in the environment or in the env file instead." ;;
   if ! response=$(printf 'user = "%s:%s"\n' "$(curlQuote "$username")" "$(curlQuote "$password")" \
       | curl -sS -f -m 30 --config - -H "Accept: application/json" "$api" 2>&1); then
     errorExit "Could not query ${host}: ${response}
-Check the instance is awake (PDIs hibernate and are reclaimed after 10 idle days) and that the credentials in ${envFile} are valid."
+Check the instance is awake (PDIs hibernate and are reclaimed after 10 idle days) and that the credentials in ${sourceName} are valid."
   fi
 
   # mid.buildstamp is the canonical property, but some releases only populate mid.version.
@@ -143,13 +155,13 @@ Check the instance is awake (PDIs hibernate and are reclaimed after 10 idle days
   if ! buildstamp=$(printf '%s' "$response" | python3 -c '
 import json, sys
 try:
-    result = json.load(sys.stdin).get("result", [])
-except (ValueError, AttributeError):
+    result = json.load(sys.stdin).get("result") or []
+    rows = {r.get("name"): str(r.get("value") or "").strip() for r in result if isinstance(r, dict)}
+except (ValueError, TypeError, AttributeError):
     sys.exit(1)
-rows = {r.get("name"): (r.get("value") or "").strip() for r in result if isinstance(r, dict)}
 print(rows.get("mid.buildstamp") or rows.get("mid.version") or "")
 '); then
-    errorExit "${host} did not return JSON. A hibernating PDI or a login page answers with HTML; wake the instance and retry."
+    errorExit "${host} did not return the expected JSON. A hibernating PDI or a login page answers with HTML; wake the instance and retry."
   fi
 
   if [ -z "$buildstamp" ]; then
@@ -158,7 +170,7 @@ print(rows.get("mid.buildstamp") or rows.get("mid.version") or "")
 
   # The buildstamp becomes part of a URL and a docker build arg: allow only its known alphabet.
   case "$buildstamp" in
-    *[!A-Za-z0-9._-]*) errorExit "Unexpected characters in buildstamp from ${host}: ${buildstamp}" ;;
+    *[!A-Za-z0-9._-]*) errorExit "Unexpected characters in buildstamp from ${host}: $(printf '%q' "$buildstamp")" ;;
   esac
 
   if [ "$stampOnly" = true ]; then

@@ -19,6 +19,7 @@ cat >"$WORK/bin/curl" <<'STUB'
 for arg in "$@"; do
   if [ "$arg" = "--config" ]; then
     cat >"$STUB_CAPTURE"
+    printf '%s\n' "$@" >"$STUB_ARGS"
     cat "$STUB_RESPONSE"
     exit 0
   fi
@@ -28,7 +29,7 @@ STUB
 chmod +x "$WORK/bin/curl"
 
 export PATH="$WORK/bin:$PATH"
-export STUB_CAPTURE="$WORK/config" STUB_RESPONSE="$WORK/response"
+export STUB_CAPTURE="$WORK/config" STUB_RESPONSE="$WORK/response" STUB_ARGS="$WORK/args"
 unset MID_INSTANCE_URL MID_INSTANCE_USERNAME MID_INSTANCE_PASSWORD
 
 readonly STAMP="australia-02-11-2026__patch2-04-17-2026_04-29-2026_2044"
@@ -64,6 +65,7 @@ failedWith() { [ "$status" -ne 0 ] && [[ "$out" == *"$1"* ]]; }
 printed() { [ "$out" = "$1" ]; }
 curlNotCalled() { [ ! -e "$STUB_CAPTURE" ]; }
 sentConfig() { [ "$(cat "$STUB_CAPTURE")" = "$1" ]; }
+queried() { grep -q "^https://$1/api/now/table/sys_properties" "$STUB_ARGS"; }
 
 writeEnv() {
   printf '%s\n' "$@" >"$WORK/.env"
@@ -98,10 +100,10 @@ check "option value that is another flag" failedWith "--instance needs a value"
 
 writeEnv 'export MID_INSTANCE_URL="https://example.service-now.com"' \
   "MID_INSTANCE_USERNAME='mid.server'" \
-  'MID_INSTANCE_PASSWORD="a b#c" # rotated 2026-10' \
-  'MID_INSTANCE_PASSWORD_HINT=ignored'
+  'MID_INSTANCE_PASSWORD="a b#c"' \
+  'MID_INSTANCE_PASSWORD_OLD=ignored'
 run
-check "export lines, surrounding quotes and comments" succeeded
+check "export lines and surrounding quotes" succeeded
 check "only the surrounding quotes are removed" sentConfig 'user = "mid.server:a b#c"'
 
 writeEnv 'MID_INSTANCE_URL=example.service-now.com' 'MID_INSTANCE_USERNAME=mid.server' \
@@ -111,18 +113,29 @@ check "quotes and backslashes are escaped for curl" sentConfig 'user = "mid.serv
 
 writeEnv 'MID_INSTANCE_URL=example.service-now.com' 'MID_INSTANCE_USERNAME=mid.server' 'MID_INSTANCE_PASSWORD=pw # note'
 run
-check "unquoted value drops a trailing comment" sentConfig 'user = "mid.server:pw"'
+check "values are literal, as docker --env-file reads them" sentConfig 'user = "mid.server:pw # note"'
 
-MID_INSTANCE_PASSWORD=from-env run
-check "environment overrides the env file" sentConfig 'user = "mid.server:from-env"'
+writeEnv 'MID_INSTANCE_URL=file.service-now.com' 'MID_INSTANCE_USERNAME=file-user' 'MID_INSTANCE_PASSWORD=file-pw'
+MID_INSTANCE_URL=env.service-now.com MID_INSTANCE_USERNAME=env-user MID_INSTANCE_PASSWORD=env-pw run
+check "the environment is used when it has the settings" sentConfig 'user = "env-user:env-pw"'
+check "the environment's instance is queried" queried env.service-now.com
 
-MID_INSTANCE_PASSWORD=$'two\nlines' run
+cp "$WORK/.env" "$WORK/other.env"
+MID_INSTANCE_URL=env.service-now.com MID_INSTANCE_PASSWORD=env-pw run --env-file other.env
+check "an explicit --env-file wins over the environment" sentConfig 'user = "file-user:file-pw"'
+check "the env file's instance is queried" queried file.service-now.com
+
+MID_INSTANCE_URL=env.service-now.com run
+check "settings are never mixed across sources" failedWith "Set MID_INSTANCE_USERNAME/MID_INSTANCE_PASSWORD in the environment"
+check "a partial environment never reaches curl" curlNotCalled
+
+MID_INSTANCE_URL=x MID_INSTANCE_USERNAME=u MID_INSTANCE_PASSWORD=$'two\nlines' run
 check "line breaks in credentials are refused" failedWith "must not contain line breaks"
 check "line breaks never reach curl" curlNotCalled
 
 respond '<html><body>Instance hibernating</body></html>'
 run
-check "non-JSON response gives a clear error" failedWith "did not return JSON"
+check "non-JSON response gives a clear error" failedWith "did not return the expected JSON"
 
 respond "{\"result\":[{\"name\":\"mid.buildstamp\",\"value\":null},{\"name\":\"mid.version\",\"value\":\"${STAMP}\"}]}"
 run --buildstamp
@@ -135,6 +148,14 @@ check "buildstamp outside its alphabet is refused" failedWith "Unexpected charac
 respond '{"result":[]}'
 run
 check "missing buildstamp" failedWith "Neither mid.buildstamp nor mid.version"
+
+respond '{"result":null}'
+run
+check "null result" failedWith "Neither mid.buildstamp nor mid.version"
+
+respond '["unexpected"]'
+run
+check "JSON of the wrong shape gives a clear error" failedWith "did not return the expected JSON"
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed"

@@ -88,8 +88,10 @@ ServiceNow's Linux container recipe, which is how `Dockerfile.unmodified` and `a
 refreshed for a new family.
 
 The script reads `MID_INSTANCE_URL`, `MID_INSTANCE_USERNAME` and `MID_INSTANCE_PASSWORD` from
-the environment, then from `.env` (or `--env-file`). It never takes the password as an
-argument, because argv shows up in `ps` and in shell history. Run its tests with
+one source: the `--env-file` you name, else the environment if any of them is exported,
+else `.env`. Env-file values are read literally, the way `docker run --env-file` reads them,
+so keep them unquoted and without inline comments. The script never takes the password as
+an argument, because argv shows up in `ps` and in shell history. Run its tests with
 `tests/get_mid_url_test.sh`; they stub `curl`, so no instance is needed.
 
 Keep the MID Server within one or two families of your instance. A MID Server several

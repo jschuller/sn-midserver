@@ -38,6 +38,7 @@ flowchart TD
 - Docker Desktop for Mac (Apple Silicon or Intel)
 - macOS Ventura (13.0) or later
 - At least 4GB of RAM available for Docker
+- `python3` and `curl` (used by `scripts/get_mid_url.sh`)
 - Basic knowledge of:
   - ServiceNow administration
   - Docker commands
@@ -85,6 +86,13 @@ docker build --platform=linux/amd64 \
 Other useful flags: `--buildstamp` prints the raw buildstamp, and `--recipe` prints the URL of
 ServiceNow's Linux container recipe, which is how `Dockerfile.unmodified` and `asset/` get
 refreshed for a new family.
+
+The script reads `MID_INSTANCE_URL`, `MID_INSTANCE_USERNAME` and `MID_INSTANCE_PASSWORD` from
+one source: the `--env-file` you name, else the environment if any of them is exported,
+else `.env`. Env-file values are read literally, the way `docker run --env-file` reads them,
+so keep them unquoted and without inline comments. The script never takes the password as
+an argument, because argv shows up in `ps` and in shell history. Run its tests with
+`tests/get_mid_url_test.sh`; they stub `curl`, so no instance is needed.
 
 Keep the MID Server within one or two families of your instance. A MID Server several
 releases behind may fail to auto-upgrade and validate.

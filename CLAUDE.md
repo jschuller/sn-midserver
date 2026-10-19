@@ -26,7 +26,8 @@ Line numbers are for the current recipe; re-derive them after a recipe refresh.
 ## Version Bump Procedure
 
 1. `scripts/get_mid_url.sh --buildstamp` — read the instance's current MID buildstamp.
-2. `scripts/get_mid_url.sh --recipe` — download and unpack that release's vendor recipe zip.
+2. `curl -fLO "$(scripts/get_mid_url.sh --recipe)"`, then unzip it. `--recipe` only prints
+   that release's vendor recipe URL; it does not download anything.
 3. Replace `Dockerfile.unmodified`, `asset/*` and `META-INF/*` from the unpacked recipe.
 4. Re-derive `Dockerfile` from the new `Dockerfile.unmodified` by re-applying the two
    `LOCAL MOD` `FROM` lines. Take the vendor's installer URL unless ours is newer.
@@ -80,6 +81,8 @@ docker run --rm --platform=linux/amd64 -e MID_INSTANCE_URL=https://example.inval
   expansion, so one `.env` drives both it and the container. Copy it to `.mcp.json`
   (gitignored), point `command` at your checkout (here: `~/construction-mcp/mcp-servicenow`),
   and launch with `set -a; source .env; set +a; claude`.
+  Inside a session started that way, run `scripts/get_mid_url.sh --env-file .env`: the
+  script otherwise reads the exported values, and sourcing expands `$` in unquoted ones.
   Useful tools: `get_system_properties` (buildstamp), `list_records` (check `ecc_agent`).
 - The `sn-docs-harvester` skill refreshes `docs/servicenow-australia/`. Australia platform
   map: `8K~WUyyBmjUR0pLPxM8yeA`; subtrees `N~VhlzBMB0_33wUwBI_LtQ` (Containerized MID Server)

@@ -1,0 +1,20 @@
+# Dependabot version updates (homelab-governance supply-chain baseline, 2026-10-20). Every update waits out a cooldown
+# of 7 days and merging stays the owner's.
+# - github-actions: keeps the SHA pins and their "# vX.Y.Z" comments up to date.
+# - docker: the two LOCAL MOD `FROM` lines in Dockerfile (CLAUDE.md, "Version Bump Procedure"). Dockerfile.unmodified is
+#   ServiceNow-signed vendor content and is never edited, so it is excluded. Major bumps are ignored: the runtime stays on
+#   EL9 by decision (AlmaLinux 10 needs x86-64-v3), and a builder JDK bump must be checked against the signature gate first.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+  - package-ecosystem: docker
+    directory: /
+    exclude-paths: [Dockerfile.unmodified]
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 } # major bumps are ignored below, so no semver-major-days
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]

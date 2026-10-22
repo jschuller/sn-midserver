@@ -10,6 +10,10 @@
 
 `--env-file .env` is required. Without it `asset/init` exits 2 before the MID Server starts.
 
+- Lint the Dockerfile without building it: `scripts/check_dockerfile.sh` (BuildKit build checks;
+  needs docker and jq, no instance). CI runs it; only the three findings it lists are accepted.
+- Script tests: `tests/get_mid_url_test.sh`, `tests/check_dockerfile_test.sh` (stubbed, offline).
+
 ## Version Pins
 
 Currently tracking the **Australia** family (Patch 2). All pins live in `Dockerfile`:
@@ -28,7 +32,9 @@ Line numbers are for the current recipe; re-derive them after a recipe refresh.
 1. `scripts/get_mid_url.sh --buildstamp` — read the instance's current MID buildstamp.
 2. `curl -fLO "$(scripts/get_mid_url.sh --recipe)"`, then unzip it. `--recipe` only prints
    that release's vendor recipe URL; it does not download anything.
-3. Replace `Dockerfile.unmodified`, `asset/*` and `META-INF/*` from the unpacked recipe.
+3. Replace `Dockerfile.unmodified` (the recipe's `Dockerfile`) and `asset/*` from the
+   unpacked recipe. Its `META-INF/` holds the signature; it is gitignored, so refresh any
+   local copy but never commit it.
 4. Re-derive `Dockerfile` from the new `Dockerfile.unmodified` by re-applying the two
    `LOCAL MOD` `FROM` lines. Take the vendor's installer URL unless ours is newer.
 5. `diff -u Dockerfile.unmodified Dockerfile` — must show **exactly two hunks**, both `FROM`
@@ -53,9 +59,12 @@ docker run --rm --platform=linux/amd64 -e MID_INSTANCE_URL=https://example.inval
 ## Gotchas
 
 - **`Dockerfile.unmodified`, `asset/*`, `mid.env`, `mid-secrets.properties` and the EULA are
-  ServiceNow-signed vendor content** (covered by `META-INF/MANIFEST.MF`). Never hand-edit
-  them — replace them wholesale from a fresh recipe zip. Only `Dockerfile` carries local
-  changes, and only on its two `FROM` lines.
+  ServiceNow-signed vendor content.** Never hand-edit them — replace them wholesale from a
+  fresh recipe zip. Only `Dockerfile` carries local changes, and only on its two `FROM` lines.
+  The signature (`META-INF/MANIFEST.MF` and its `.SF`/`.RSA`) ships in the recipe zip and is
+  **not tracked here** (`META-INF/` is gitignored), so a clone cannot verify these files on
+  its own. To check them, run `jarsigner -verify -strict` on the downloaded recipe zip, unzip
+  it, and diff its files against the tracked copies (its `Dockerfile` is `Dockerfile.unmodified`).
 - **Do not add files to `asset/`.** `Dockerfile` does `COPY asset/*`, so anything there is
   baked into the build context and the image. Local tooling goes in `scripts/`.
 - **The runtime image is x86-64 only** ([KB2675992](https://support.servicenow.com/kb?id=kb_article_view&sysparm_article=KB2675992))
@@ -103,8 +112,9 @@ docker run --rm --platform=linux/amd64 -e MID_INSTANCE_URL=https://example.inval
 - `Dockerfile.unmodified`: vendor recipe, byte-identical to what ServiceNow signs
 - `asset/`: vendor scripts; `asset/init` is the entrypoint and container initialization
 - `scripts/get_mid_url.sh`: derives installer/recipe URLs from a live instance
+- `scripts/check_dockerfile.sh`: BuildKit build checks on `Dockerfile`, run in CI
 - `docs/servicenow-australia/`: harvested official docs for the pinned release
-- `META-INF/`: vendor jar signature (gitignored — a download artifact)
+- `META-INF/`: the recipe zip's signature (gitignored, not in the repo — a download artifact)
 - `.env` (gitignored) vs `.env.template` (committed) vs `mid.env` (vendor sample)
 
 Please maintain existing patterns when modifying code.

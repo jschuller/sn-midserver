@@ -10,6 +10,10 @@
 
 `--env-file .env` is required. Without it `asset/init` exits 2 before the MID Server starts.
 
+- Lint the Dockerfile without building it: `scripts/check_dockerfile.sh` (BuildKit build checks;
+  needs docker and jq, no instance). CI runs it; only the three findings it lists are accepted.
+- Script tests: `tests/get_mid_url_test.sh`, `tests/check_dockerfile_test.sh` (stubbed, offline).
+
 ## Version Pins
 
 Currently tracking the **Australia** family (Patch 2). All pins live in `Dockerfile`:
@@ -108,6 +112,7 @@ docker run --rm --platform=linux/amd64 -e MID_INSTANCE_URL=https://example.inval
 - `Dockerfile.unmodified`: vendor recipe, byte-identical to what ServiceNow signs
 - `asset/`: vendor scripts; `asset/init` is the entrypoint and container initialization
 - `scripts/get_mid_url.sh`: derives installer/recipe URLs from a live instance
+- `scripts/check_dockerfile.sh`: BuildKit build checks on `Dockerfile`, run in CI
 - `docs/servicenow-australia/`: harvested official docs for the pinned release
 - `META-INF/`: the recipe zip's signature (gitignored, not in the repo — a download artifact)
 - `.env` (gitignored) vs `.env.template` (committed) vs `mid.env` (vendor sample)

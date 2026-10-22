@@ -20,9 +20,25 @@ jobs:
         with:
           persist-credentials: false
       - name: shellcheck
-        run: shellcheck scripts/get_mid_url.sh tests/get_mid_url_test.sh
+        run: shellcheck scripts/*.sh tests/*.sh
       - name: get_mid_url.sh tests
         run: tests/get_mid_url_test.sh
+      - name: check_dockerfile.sh tests
+        run: tests/check_dockerfile_test.sh
+
+  dockerfile:
+    # BuildKit's build checks on the Dockerfile, without building it: no RUN step executes, so neither a ServiceNow
+    # instance nor the MID installer download is involved. The checks frontend is pinned by digest in the script, which
+    # accepts only the three known findings it lists.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: docker build --call=check
+        run: scripts/check_dockerfile.sh
 
   zizmor:
     # security audit of the workflows and dependabot.yml (config: .github/zizmor.yml). The action runs zizmor's container

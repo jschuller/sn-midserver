@@ -94,6 +94,11 @@ so keep them unquoted and without inline comments. The script never takes the pa
 an argument, because argv shows up in `ps` and in shell history. Run its tests with
 `tests/get_mid_url_test.sh`; they stub `curl`, so no instance is needed.
 
+`scripts/check_dockerfile.sh` runs BuildKit's build checks on the `Dockerfile` without
+building it, so it needs Docker and `jq` but no instance and no installer download. CI runs
+it on every push and pull request. A full image build stays manual: it downloads the MID
+installer from ServiceNow.
+
 Keep the MID Server within one or two families of your instance. A MID Server several
 releases behind may fail to auto-upgrade and validate.
 

@@ -23,6 +23,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   error instead of a Python traceback; a null property value no longer crashes the parse.
 - CLAUDE.md's bump procedure said `--recipe` downloads and unpacks the recipe; it prints the
   URL.
+- CLAUDE.md and this changelog described `META-INF/` both as gitignored and as committed
+  vendor content. It is gitignored and untracked; the docs now say so and explain how to
+  verify the vendor files against the signed recipe zip instead.
 
 ### Changed
 - `get_mid_url.sh` takes all three `MID_INSTANCE_*` settings from one source: the
@@ -30,8 +33,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   It used to read only the env file. Settings are never mixed across sources, so a URL
   from the environment can't be sent a password from a file.
 - **MID Server bumped from Xanadu Patch 4a (Jan 2025) to Australia Patch 2 (Apr 2026)**,
-  four release families forward. Vendor recipe (`Dockerfile.unmodified`, `asset/`,
-  `META-INF/`) refreshed from ServiceNow's Australia Linux container recipe.
+  four release families forward. Vendor recipe (`Dockerfile.unmodified`, `asset/`)
+  refreshed from ServiceNow's Australia Linux container recipe. Its `META-INF/` signature
+  is gitignored and not part of the repository.
 - Runtime base image `almalinux:9.2` → `almalinux:9.8`. 9.2 is an EOL point release, so
   every build was replaying years of `dnf update --security` deltas under emulation.
 - Builder base image `eclipse-temurin:8-jdk-alpine` → `eclipse-temurin:21-jdk-alpine`,

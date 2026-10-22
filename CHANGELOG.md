@@ -50,8 +50,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `scripts/check_dockerfile.sh` and a CI job that runs it: BuildKit's build checks
   (`docker build --call=check`) on the `Dockerfile`, without building it, so no instance or
   installer download is needed. The checks frontend is pinned by digest, and only the three
-  known findings (the deliberate `linux/amd64` pin and the vendor recipe's empty
-  `MID_INSTANCE_PASSWORD`/`MID_PROXY_PASSWORD` placeholders) are accepted. Tested with a
+  known findings (the deliberate `linux/amd64` pin and the vendor recipe's
+  `MID_INSTANCE_PASSWORD`/`MID_PROXY_PASSWORD` ENV names) are accepted, each once. The rule
+  checks names, not values; the vendor-diff rule keeps those values empty. Tested with a
   stubbed `docker` in `tests/check_dockerfile_test.sh`; shellcheck now covers every script.
 - `tests/get_mid_url_test.sh` (stubbed `curl`, no instance needed) and a CI workflow that
   runs it with shellcheck.

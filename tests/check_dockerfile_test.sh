@@ -73,6 +73,14 @@ run
 check "a new finding fails" failedWith 'Unexpected Dockerfile check findings'
 check "the new finding is named" failedWith 'MID_TOKEN'
 
+respond "{\"warnings\":[$PLATFORM_FINDING,$PLATFORM_FINDING,$PASSWORD_FINDING,$PROXY_FINDING]}" 1
+run
+check "a second instance of an accepted finding fails" failedWith 'Unexpected Dockerfile check findings'
+
+respond "{\"warnings\":[$PLATFORM_FINDING,$PASSWORD_FINDING,$PASSWORD_FINDING,$PROXY_FINDING]}" 1
+run
+check "a repeated password finding fails" failedWith 'MID_INSTANCE_PASSWORD'
+
 respond '{"warnings":null,"buildError":{"message":"dockerfile parse error on line 1"}}' 1
 run
 check "a Dockerfile that cannot be checked fails" failedWith "dockerfile parse error on line 1"

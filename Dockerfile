@@ -60,7 +60,7 @@ RUN chmod -R g=u /opt/snc_mid_server
 # LOCAL MOD: the MID Server ships x86-64 binaries only (ServiceNow KB2675992), so the
 # runtime stage is pinned to linux/amd64 and runs under Rosetta on Apple Silicon.
 # Base bumped 9.2 -> 9.8; 9.2 is an EOL point release.
-FROM --platform=linux/amd64 almalinux:9.8
+FROM --platform=linux/amd64 almalinux:9.9
 
 # Install security and bugfix updates, and then the required packages.
 RUN dnf update -y --security --bugfix && \
